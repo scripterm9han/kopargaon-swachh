@@ -1,0 +1,5 @@
+{
+  "name": "Smart Waste Segregation Assistant ♻️",
+  "description": "A comprehensive AI-powered platform for waste identification, recycling guides, and environmental reporting.",
+  "requestFramePermissions": ["camera", "geolocation"]
+}
