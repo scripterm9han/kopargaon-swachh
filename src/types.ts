@@ -1,11 +1,13 @@
-export type WasteCategory = 'Recyclable' | 'Organic' | 'Non-Recyclable' | 'E-Waste' | 'Hazardous';
+export type WasteMaterialType = 'plastic' | 'paper' | 'glass' | 'metal' | 'e-waste' | 'organic' | 'mixed' | 'other';
 
 export interface WasteAnalysis {
-  itemName: string;
-  category: WasteCategory;
-  binColor: 'Blue' | 'Green' | 'Black' | 'Red';
-  disposalInstruction: string;
-  environmentalTip: string;
+  item_name: string;
+  material_type: WasteMaterialType;
+  recyclable: boolean;
+  confidence: number;
+  disposal_instructions: string;
+  hazard_flag: boolean;
+  notes: string | null;
 }
 
 export interface LeaderboardEntry {

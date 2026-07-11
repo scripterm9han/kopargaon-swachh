@@ -1,155 +1,249 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { MapPin, Search, Navigation, Info, Phone, Clock } from 'lucide-react';
+import { Search, Clock, Compass, MapPin } from 'lucide-react';
+import { useLanguage } from '../context/LanguageContext';
+import { cn } from '../lib/utils';
 
-// Mock locations
-const locations = [
-  { id: 1, name: "Green City Recycling Center", type: "General", address: "123 Eco Way, Metro City", lat: 40.7128, lng: -74.0060, phone: "555-0123", hours: "8am - 6pm" },
-  { id: 2, name: "E-Waste Solutions", type: "Electronic", address: "45 Tech Park, North District", lat: 40.7306, lng: -73.9352, phone: "555-0456", hours: "9am - 5pm" },
-  { id: 3, name: "Organic Compost Hub", type: "Organic", address: "88 Garden Lane, South Hill", lat: 40.7589, lng: -73.9851, phone: "555-0789", hours: "7am - 4pm" },
-  { id: 4, name: "Scrap Metal Dealers", type: "Metal", address: "12 Industrial Blvd", lat: 40.7829, lng: -73.9654, phone: "555-0999", hours: "8am - 8pm" },
+type PinType = "bin" | "recyclingCenter" | "userReport";
+
+// Real waste pickup and dispense points in Kopargaon, Maharashtra
+const dropOffCenters = [
+  { 
+    id: 1, 
+    name: "Kopargaon Municipal Council Plant", 
+    type: "Organic Compost & Sorting Hub", 
+    pinType: "recyclingCenter" as PinType,
+    address: "Station Road, near Municipal Council, Kopargaon, MH 423601", 
+    lat: 19.8920, 
+    lng: 74.4845, 
+    phone: "+91 2423 222233", 
+    hours: "8:00 AM - 6:00 PM" 
+  },
+  { 
+    id: 2, 
+    name: "Godavari Valley Waste Depot", 
+    type: "Dry Plastics & Cardboard", 
+    pinType: "recyclingCenter" as PinType,
+    address: "Yeola Road, MIDC Industrial Area, Kopargaon, MH 423601", 
+    lat: 19.8850, 
+    lng: 74.4750, 
+    phone: "+91 98224 55102", 
+    hours: "9:00 AM - 7:00 PM" 
+  },
+  { 
+    id: 3, 
+    name: "Ganeshnagar E-Waste Vault", 
+    type: "Batteries / Electronics Drop", 
+    pinType: "userReport" as PinType,
+    address: "Near Sangamner Road junction, Kopargaon, MH 423603", 
+    lat: 19.8780, 
+    lng: 74.4920, 
+    phone: "+91 94222 34180", 
+    hours: "24 Hours Drop Box" 
+  },
+  { 
+    id: 4, 
+    name: "Bazar Peth Organic waste Pit", 
+    type: "Organic Kitchen Compost", 
+    pinType: "bin" as PinType,
+    address: "Subhash Chowk, Vegetable Market, Kopargaon, MH 423601", 
+    lat: 19.8895, 
+    lng: 74.4812, 
+    phone: "+91 2423 223504", 
+    hours: "6:00 AM - 8:00 PM" 
+  },
+  { 
+    id: 5, 
+    name: "Kopargaon Railway Compactor", 
+    type: "Metal & Solid Scrap Compactor", 
+    pinType: "recyclingCenter" as PinType,
+    address: "Station Road, Railway Yard, Kopargaon, MH 423601", 
+    lat: 19.9230, 
+    lng: 74.4862, 
+    phone: "+91 90110 88200", 
+    hours: "8:00 AM - 5:00 PM" 
+  }
 ];
 
 export default function RecyclingMap() {
+  const { t } = useLanguage();
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedLocation, setSelectedLocation] = useState<any>(null);
-  const [userLocation, setUserLocation] = useState<{lat: number, lng: number} | null>(null);
+  const [selectedCenter, setSelectedCenter] = useState<any>(dropOffCenters[0]);
+  const [map, setMap] = useState<any>(null);
+  const [markers, setMarkers] = useState<any[]>([]);
 
+  const filteredCenters = dropOffCenters.filter((c) =>
+    c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    c.type.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    c.address.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  // Initialize Leaflet Map once with CartoDB Voyager light tiles
   useEffect(() => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setUserLocation({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude
-          });
-        },
-        () => console.log("Geolocation permission denied")
-      );
+    const L = (window as any).L;
+    if (!L) {
+      console.error("Leaflet library not loaded yet.");
+      return;
     }
+
+    // Centered initially on Kopargaon
+    const mapInstance = L.map('kopargaon-leaflet-map', {
+      zoomControl: false // Keep controls hidden for a clean app feel
+    }).setView([19.889, 74.483], 13);
+
+    // CartoDB Voyager light tiles matches light theme
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+    }).addTo(mapInstance);
+
+    // Custom colored divIcon pin configurations
+    const getPinIcon = (type: PinType) => {
+      const colorByType: Record<PinType, string> = {
+        bin: "#10B981",            // emerald green
+        recyclingCenter: "#3B82F6", // recycle blue
+        userReport: "#F59E0B",      // amber
+      };
+
+      return L.divIcon({
+        className: "custom-pin",
+        html: `
+          <div style="
+            width: 24px; height: 24px; border-radius: 50%;
+            background: ${colorByType[type]};
+            border: 2px solid rgba(255,255,255,0.9);
+            box-shadow: 0 0 10px 1px ${colorByType[type]}50, 0 2px 6px rgba(0,0,0,0.25);
+          "></div>
+        `,
+        iconSize: [24, 24],
+        iconAnchor: [12, 12]
+      });
+    };
+
+    // Add markers for all Kopargaon points
+    const createdMarkers = dropOffCenters.map((loc) => {
+      const marker = L.marker([loc.lat, loc.lng], { icon: getPinIcon(loc.pinType) })
+        .addTo(mapInstance)
+        .bindPopup(`<b>${loc.name}</b><br/><span style="font-size: 10px; color: #555;">${loc.type}</span>`);
+
+      // Sync selection when tapping marker pin
+      marker.on('click', () => {
+        setSelectedCenter(loc);
+      });
+
+      return { id: loc.id, marker };
+    });
+
+    setMap(mapInstance);
+    setMarkers(createdMarkers);
+
+    return () => {
+      mapInstance.remove();
+    };
   }, []);
 
+  // Update map coordinates smoothly using flyTo transitions (1.0s)
+  useEffect(() => {
+    if (map && selectedCenter) {
+      const { lat, lng } = selectedCenter;
+      map.flyTo([lat, lng], 15, {
+        animate: true,
+        duration: 1.0
+      });
+
+      // Trigger popup automatically on focus
+      const targetMarker = markers.find(m => m.id === selectedCenter.id);
+      if (targetMarker) {
+        targetMarker.marker.openPopup();
+      }
+    }
+  }, [selectedCenter, map, markers]);
+
   return (
-    <div className="max-w-7xl mx-auto py-12 px-4 h-[calc(100vh-64px)] flex flex-col">
-      <div className="flex flex-col md:flex-row justify-between items-end gap-4 mb-8">
-        <div>
-          <h1 className="text-3xl font-bold text-stone-900 mb-2">Recycling Map</h1>
-          <p className="text-stone-500">Find nearby collection points and recycling centers.</p>
-        </div>
-        <div className="relative w-full md:w-96">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400" size={18} />
-          <input 
-            type="text" 
-            placeholder="Search by area or waste type..."
-            className="w-full pl-12 pr-4 py-3 bg-white border border-stone-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
+    <div className="relative w-full h-full flex flex-col overflow-hidden">
+      
+      {/* 1. FLOATING SEARCH BAR (Light glass styling) */}
+      <div className="absolute top-4 left-4 right-4 z-20 bg-white/95 backdrop-blur-md border border-emerald-500/10 rounded-2xl shadow-xl flex items-center gap-2.5 px-4 py-3">
+        <Search size={16} className="text-slate-400 shrink-0" />
+        <input 
+          type="text" 
+          placeholder="Search Kopargaon Bins & Depots..."
+          className="w-full bg-transparent border-0 text-xs font-bold text-slate-700 focus:outline-none placeholder-slate-400"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
       </div>
 
-      <div className="flex-1 flex flex-col lg:flex-row gap-6 overflow-hidden">
-        {/* Sidebar */}
-        <div className="w-full lg:w-96 flex flex-col gap-4 overflow-y-auto pr-2">
-          {locations.map((loc) => (
-            <motion.button
-              key={loc.id}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => setSelectedLocation(loc)}
-              className={`p-5 rounded-3xl border text-left transition-all ${
-                selectedLocation?.id === loc.id 
-                  ? "bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-200" 
-                  : "bg-white border-stone-100 hover:border-emerald-200"
-              }`}
-            >
-              <div className="flex justify-between items-start mb-2">
-                <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full ${
-                  selectedLocation?.id === loc.id ? "bg-white/20" : "bg-stone-100 text-stone-500"
-                }`}>
-                  {loc.type}
-                </span>
-                <Navigation size={16} className={selectedLocation?.id === loc.id ? "text-white" : "text-stone-300"} />
-              </div>
-              <h3 className="font-bold text-lg mb-1">{loc.name}</h3>
-              <p className={`text-sm mb-3 ${selectedLocation?.id === loc.id ? "text-emerald-50" : "text-stone-500"}`}>
-                {loc.address}
-              </p>
-              <div className="flex gap-4">
-                <div className="flex items-center gap-1 text-xs">
-                  <Clock size={12} />
-                  <span>{loc.hours}</span>
-                </div>
-                <div className="flex items-center gap-1 text-xs">
-                  <Phone size={12} />
-                  <span>{loc.phone}</span>
-                </div>
-              </div>
-            </motion.button>
-          ))}
-        </div>
+      {/* 2. REAL INTERACTIVE LEAFLET MAP ELEMENT */}
+      <div className="flex-1 w-full h-full relative z-10">
+        <div id="kopargaon-leaflet-map" className="w-full h-full" style={{ background: '#EAECE9' }} />
+      </div>
 
-        {/* Map Placeholder */}
-        <div className="flex-1 bg-stone-100 rounded-[3rem] relative overflow-hidden border border-stone-200">
-          {/* In a real app, we'd use Google Maps here. For this demo, we'll create a stylized visual placeholder */}
-          <div className="absolute inset-0 bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:20px_20px] opacity-50" />
-          
-          {/* Mock Markers */}
-          {locations.map((loc) => (
-            <motion.div
-              key={loc.id}
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              className="absolute cursor-pointer group"
-              style={{ 
-                top: `${30 + (loc.lat - 40.7) * 500}%`, 
-                left: `${50 + (loc.lng + 74) * 500}%` 
-              }}
-              onClick={() => setSelectedLocation(loc)}
-            >
-              <div className={`p-2 rounded-full shadow-xl transition-all ${
-                selectedLocation?.id === loc.id ? "bg-emerald-600 scale-125" : "bg-white group-hover:bg-emerald-50"
-              }`}>
-                <MapPin size={20} className={selectedLocation?.id === loc.id ? "text-white" : "text-emerald-600"} />
-              </div>
-              <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 whitespace-nowrap bg-stone-900 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                {loc.name}
-              </div>
-            </motion.div>
-          ))}
-
-          {/* User Location Marker */}
-          {userLocation && (
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
-              <div className="w-6 h-6 bg-blue-500 rounded-full border-4 border-white shadow-xl animate-pulse" />
-            </div>
-          )}
-
-          {/* Info Card Overlay */}
-          {selectedLocation && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="absolute bottom-6 left-6 right-6 md:left-auto md:w-80 p-6 bg-white rounded-3xl shadow-2xl border border-stone-100"
-            >
-              <div className="flex justify-between items-start mb-4">
-                <h3 className="font-bold text-xl text-stone-800">{selectedLocation.name}</h3>
-                <button onClick={() => setSelectedLocation(null)} className="text-stone-400 hover:text-stone-600">
-                  <Info size={20} />
-                </button>
-              </div>
-              <p className="text-sm text-stone-500 mb-4">{selectedLocation.address}</p>
-              <button className="w-full py-3 bg-emerald-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-emerald-700 transition-all">
-                <Navigation size={18} />
-                Get Directions
-              </button>
-            </motion.div>
-          )}
-
-          <div className="absolute top-6 right-6 p-3 bg-white/80 backdrop-blur rounded-2xl border border-white/20 text-[10px] font-bold text-stone-500 shadow-sm">
-            MAP VIEW: METRO CITY
+      {/* 3. FLOATING HORIZONTAL SWIPE CAROUSEL (Light glass card styling) */}
+      <div className="absolute bottom-24 left-0 w-full z-20 flex gap-4 overflow-x-auto px-4 py-2 snap-x snap-mandatory scrollbar-none">
+        {filteredCenters.length === 0 ? (
+          <div className="snap-center w-[calc(100%-2rem)] mx-auto p-4 bg-white/95 backdrop-blur border border-emerald-500/15 rounded-2xl text-center text-[10px] font-black text-slate-400 uppercase tracking-wider shadow-lg">
+            No matching bins found
           </div>
-        </div>
+        ) : (
+          filteredCenters.map((loc) => {
+            const isSelected = selectedCenter?.id === loc.id;
+            return (
+              <motion.div
+                key={loc.id}
+                onClick={() => setSelectedCenter(loc)}
+                className={cn(
+                  "snap-center w-[270px] shrink-0 p-4 rounded-2xl border text-left cursor-pointer transition-all shadow-xl flex flex-col justify-between min-h-[130px] select-none",
+                  isSelected 
+                    ? "bg-emerald-600 border-emerald-600 text-white shadow-emerald-500/15" 
+                    : "bg-white/95 backdrop-blur text-slate-800 border-emerald-500/10"
+                )}
+              >
+                <div>
+                  <div className="flex justify-between items-center gap-2 mb-1.5">
+                    <span className={cn(
+                      "text-[7px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full truncate max-w-[150px] border",
+                      isSelected 
+                        ? "bg-white/20 text-white border-white/10" 
+                        : "bg-slate-50 text-slate-500 border-slate-200"
+                    )}>
+                      {loc.type}
+                    </span>
+                    <MapPin size={13} className={isSelected ? "text-white animate-bounce" : "text-emerald-600"} />
+                  </div>
+                  <h3 className="font-extrabold text-[11px] leading-tight mb-1 truncate">{loc.name}</h3>
+                  <p className={cn("text-[9px] line-clamp-2 leading-tight font-semibold", isSelected ? "text-emerald-50" : "text-slate-500")}>
+                    {loc.address}
+                  </p>
+                </div>
+                
+                <div className={cn("flex items-center justify-between gap-2 mt-2 pt-2 border-t", isSelected ? "border-white/10" : "border-slate-100")}>
+                  <div className="flex items-center gap-1 text-[8px] font-black uppercase opacity-90">
+                    <Clock size={10} />
+                    <span>{loc.hours}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      window.open(`https://www.google.com/maps/dir/?api=1&destination=${loc.lat},${loc.lng}`);
+                    }}
+                    className={cn(
+                      "px-3 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest transition-all",
+                      isSelected ? "bg-white text-emerald-700 hover:bg-slate-50 shadow-md" : "bg-emerald-600 text-white hover:bg-emerald-500 shadow-md"
+                    )}
+                  >
+                    Go Route
+                  </button>
+                </div>
+              </motion.div>
+            );
+          })
+        )}
+      </div>
+
+      <div className="absolute top-20 right-4 p-2 bg-white/95 backdrop-blur border border-emerald-500/10 text-[8px] font-black text-slate-500 rounded-lg shadow-lg uppercase tracking-wider z-20 select-none">
+        Kopargaon Center View
       </div>
     </div>
   );
